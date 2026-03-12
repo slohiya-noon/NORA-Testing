@@ -479,25 +479,32 @@ with left_col:
             st.error("Please enter your OpenAI API Key in the sidebar")
         else:
             user_text = user_text_input.strip()
-            stt_time  = st.session_state.stt_time
+            print(f"DEBUG pipeline started: '{user_text[:30]}'")
+            print(f"DEBUG tts_model: {tts_model}")
+            print(f"DEBUG tts_voice: {tts_voice}")
+            print(f"DEBUG elevenlabs_key empty: {elevenlabs_key == ''}")
 
             # Agent
             with st.spinner("🤖 Agent thinking..."):
                 agent_start    = time.time()
                 agent_response = run_agent(user_text)
                 agent_time     = time.time() - agent_start
+                print(f"DEBUG agent response: '{agent_response[:30]}'")
 
             # TTS
+            print(f"DEBUG calling TTS...")
             with st.spinner(f"🔊 Generating speech ({tts_model})..."):
                 tts_start = time.time()
                 try:
                     tts_audio = run_tts(agent_response)
                     tts_time  = time.time() - tts_start
                     tts_ok    = True
+                    print(f"DEBUG TTS success, audio size: {len(tts_audio)}")
                 except Exception as e:
                     tts_time  = time.time() - tts_start
                     tts_ok    = False
                     tts_audio = None
+                    print(f"DEBUG TTS error: {e}")
                     st.error(f"TTS Error: {e}")
 
             total_time = stt_time + agent_time + (tts_time if tts_ok else 0)
