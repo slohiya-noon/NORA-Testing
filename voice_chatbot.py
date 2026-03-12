@@ -236,18 +236,21 @@ def tts_google(text, voice_name, rate, pitch):
 def tts_elevenlabs(text, voice_name, stability, similarity):
     import requests
     
-    # Get voice ID from name
     voice_ids = {
-        "Rachel":  "21m00Tcm4TlvDq8ikWAM",
-        "Bella":   "EXAVITQu4vr4xnSDxMaL",
-        "Antoni":  "ErXwobaYiN019PkySvjV",
-        "Farah":   "4wf10lgibMnboGJGCLrP",
-        "Sana":    "mRdG9GYEjJmIzqbYTidv",
+        "Rachel":      "21m00Tcm4TlvDq8ikWAM",
+        "Bella":       "EXAVITQu4vr4xnSDxMaL",
+        "Antoni":      "ErXwobaYiN019PkySvjV",
+        "Farah":       "4wf10lgibMnboGJGCLrP",
+        "Sana":        "mRdG9GYEjJmIzqbYTidv",
         "Abrar Sabah": "VwC51uc4PUblWEJSPzeo",
-
     }
     
     voice_id = voice_ids.get(voice_name, voice_ids["Rachel"])
+    
+    # ← Add these debug prints
+    print(f"DEBUG key: '{elevenlabs_key[:5]}...{elevenlabs_key[-4:]}'")
+    print(f"DEBUG voice: {voice_name} → {voice_id}")
+    print(f"DEBUG text length: {len(text)}")
     
     response = requests.post(
         f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}",
@@ -264,6 +267,9 @@ def tts_elevenlabs(text, voice_name, stability, similarity):
             }
         }
     )
+    
+    print(f"DEBUG status: {response.status_code}")
+    print(f"DEBUG response: {response.text[:200]}")
     
     if response.status_code != 200:
         raise Exception(f"ElevenLabs error {response.status_code}: {response.text}")
