@@ -235,7 +235,7 @@ def tts_google(text, voice_name, rate, pitch):
 
 def tts_elevenlabs(text, voice_name, stability, similarity):
     import requests
-    
+    st.write(f"DEBUG: key={elevenlabs_key[:8] if elevenlabs_key else 'EMPTY'}")
     voice_ids = {
         "Rachel":      "21m00Tcm4TlvDq8ikWAM",
         "Bella":       "EXAVITQu4vr4xnSDxMaL",
