@@ -267,7 +267,8 @@ def tts_elevenlabs(text, voice_name, stability, similarity):
             }
         }
     )
-    
+    st.write(f"DEBUG status: {response.status_code}")
+    st.write(f"DEBUG response: {response.text[:300]}")
     print(f"DEBUG status: {response.status_code}")
     print(f"DEBUG response: {response.text[:200]}")
     
