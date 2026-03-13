@@ -58,7 +58,15 @@ if "last_audio_id"   not in st.session_state: st.session_state.last_audio_id   =
 if "tts_audio"       not in st.session_state: st.session_state.tts_audio       = None
 if "stt_time"        not in st.session_state: st.session_state.stt_time        = 0.0
 if "input_counter" not in st.session_state: st.session_state.input_counter = 0
-
+if "auto_send" not in st.session_state: st.session_state.auto_send = True
+if "transcript_just_updated" not in st.session_state: 
+    st.session_state.transcript_just_updated = False
+if st.session_state.get("transcript_just_updated", False):
+    st.session_state.transcript_just_updated = False
+if "last_processed_transcript" not in st.session_state: 
+    st.session_state.last_processed_transcript = ""
+if "transcript_id" not in st.session_state: st.session_state.transcript_id = 0
+if "last_processed_id" not in st.session_state: st.session_state.last_processed_id = 0
 # ── Sidebar ───────────────────────────────────────────────────────
 with st.sidebar:
     st.title("⚙️ Configuration")
@@ -421,10 +429,12 @@ with left_col:
                 key="mic_stt"
             )
 
-            if text:
+            if text and text != st.session_state.get("last_processed_transcript", ""):
                 st.session_state.transcript = text
                 st.session_state.stt_time   = 0.0  # on-device = no server latency
                 st.session_state.input_counter += 1
+                st.session_state.transcript_just_updated = True
+                st.session_state.transcript_id += 1
 
             if st.session_state.transcript:
                 st.markdown("**📝 Transcribed — edit if needed:**")
@@ -465,6 +475,8 @@ with left_col:
                         try:
                             st.session_state.transcript = run_stt_whisper(audio_bytes)
                             st.session_state.stt_time   = time.time() - stt_start
+                            st.session_state.transcript_just_updated = True
+                            st.session_state.transcript_id += 1
                         except Exception as e:
                             st.error(f"STT Error: {e}")
 
@@ -488,47 +500,60 @@ with left_col:
             placeholder="Type your message here...",
             height=80, key="manual_input"
         )
-
+    
     # ── Send button ───────────────────────────────────────────────
-    send_btn = st.button(
-        "▶️ Send",
-        use_container_width=True,
-        type="primary",
-        disabled=not (isinstance(user_text_input, str) and user_text_input.strip())
-    )
+    auto_send = st.toggle("⚡ Auto-send after transcription", value=True)
+    if not auto_send:
+        send_btn = st.button(
+            "▶️ Send",
+            use_container_width=True,
+            type="primary",
+            disabled=not (isinstance(user_text_input, str) and user_text_input.strip())
+        )
+    else:
+        send_btn = False
 
     # ── Pipeline ──────────────────────────────────────────────────
-    if send_btn and isinstance(user_text_input, str) and user_text_input.strip():
+    should_run = (
+        (auto_send and bool(
+            isinstance(user_text_input, str) and
+            user_text_input.strip() and
+            st.session_state.transcript_id != st.session_state.last_processed_id
+        ))
+        or
+        (not auto_send and send_btn and isinstance(user_text_input, str) and user_text_input.strip())
+    )
+    if should_run:
         if not openai_key:
             st.error("Please enter your OpenAI API Key in the sidebar")
         else:
             user_text = user_text_input.strip()
-            print(f"DEBUG pipeline started: '{user_text[:30]}'")
-            print(f"DEBUG tts_model: {tts_model}")
-            print(f"DEBUG tts_voice: {tts_voice}")
-            print(f"DEBUG elevenlabs_key empty: {elevenlabs_key == ''}")
+            # print(f"DEBUG pipeline started: '{user_text[:30]}'")
+            # print(f"DEBUG tts_model: {tts_model}")
+            # print(f"DEBUG tts_voice: {tts_voice}")
+            # print(f"DEBUG elevenlabs_key empty: {elevenlabs_key == ''}")
 
             # Agent
             with st.spinner("🤖 Agent thinking..."):
                 agent_start    = time.time()
                 agent_response = run_agent(user_text)
                 agent_time     = time.time() - agent_start
-                print(f"DEBUG agent response: '{agent_response[:30]}'")
+                # print(f"DEBUG agent response: '{agent_response[:30]}'")
 
             # TTS
-            print(f"DEBUG calling TTS...")
+            # print(f"DEBUG calling TTS...")
             with st.spinner(f"🔊 Generating speech ({tts_model})..."):
                 tts_start = time.time()
                 try:
                     tts_audio = run_tts(agent_response)
                     tts_time  = time.time() - tts_start
                     tts_ok    = True
-                    print(f"DEBUG TTS success, audio size: {len(tts_audio)}")
+                    # print(f"DEBUG TTS success, audio size: {len(tts_audio)}")
                 except Exception as e:
                     tts_time  = time.time() - tts_start
                     tts_ok    = False
                     tts_audio = None
-                    print(f"DEBUG TTS error: {e}")
+                    # print(f"DEBUG TTS error: {e}")
                     st.error(f"TTS Error: {e}")
 
             total_time = stt_time + agent_time + (tts_time if tts_ok else 0)
@@ -550,9 +575,12 @@ with left_col:
                 st.session_state.tts_audio = tts_audio
 
             # Reset transcript
+            st.session_state.last_processed_id          = st.session_state.transcript_id 
+            st.session_state.last_processed_transcript   = user_text
+            st.session_state.transcript_just_updated     = False
             st.session_state.transcript    = ""
             st.session_state.stt_time      = 0.0
-            st.session_state.last_audio_id = None
+            # st.session_state.last_audio_id = None
             # st.session_state.input_counter += 1
 
             st.rerun()
