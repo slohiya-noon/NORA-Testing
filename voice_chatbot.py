@@ -1,3 +1,4 @@
+from xmlrpc import client
 import streamlit as st
 import time
 import os
@@ -96,6 +97,7 @@ with st.sidebar:
         "Azure Neural",
         "Google Neural2",
         "ElevenLabs",
+        "Kokoro",
     ])
 
     tts_style = tts_rate = tts_pitch = tts_styledegree = tts_stability = tts_similarity = None
@@ -145,6 +147,9 @@ with st.sidebar:
         ])
         tts_stability  = st.slider("Stability",        0.0, 1.0, 0.5,  0.05)
         tts_similarity = st.slider("Similarity Boost", 0.0, 1.0, 0.75, 0.05)
+    elif tts_model == "Kokoro":
+        tts_voice = st.selectbox("Voice", ["af_heart", "af_bella", "af_sarah", "bf_emma"])
+        tts_rate  = st.slider("Speaking Rate", 0.5, 1.5, 1.0, 0.05)
 
     st.divider()
 
@@ -235,7 +240,7 @@ def tts_google(text, voice_name, rate, pitch):
 
 def tts_elevenlabs(text, voice_name, stability, similarity):
     import requests
-    st.write(f"DEBUG: key={elevenlabs_key[:8] if elevenlabs_key else 'EMPTY'}")
+    # st.write(f"DEBUG: key={elevenlabs_key if elevenlabs_key else 'EMPTY'}")
     voice_ids = {
         "Rachel":      "21m00Tcm4TlvDq8ikWAM",
         "Bella":       "EXAVITQu4vr4xnSDxMaL",
@@ -248,9 +253,9 @@ def tts_elevenlabs(text, voice_name, stability, similarity):
     voice_id = voice_ids.get(voice_name, voice_ids["Rachel"])
     
     # ← Add these debug prints
-    print(f"DEBUG key: '{elevenlabs_key[:5]}...{elevenlabs_key[-4:]}'")
-    print(f"DEBUG voice: {voice_name} → {voice_id}")
-    print(f"DEBUG text length: {len(text)}")
+    # print(f"DEBUG key: '{elevenlabs_key[:5]}...{elevenlabs_key[-4:]}'")
+    # print(f"DEBUG voice: {voice_name} → {voice_id}")
+    # print(f"DEBUG text length: {len(text)}")
     
     response = requests.post(
         f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}",
@@ -269,13 +274,27 @@ def tts_elevenlabs(text, voice_name, stability, similarity):
     )
     st.write(f"DEBUG status: {response.status_code}")
     st.write(f"DEBUG response: {response.text[:300]}")
-    print(f"DEBUG status: {response.status_code}")
-    print(f"DEBUG response: {response.text[:200]}")
+    # print(f"DEBUG status: {response.status_code}")
+    # print(f"DEBUG response: {response.text[:200]}")
     
     if response.status_code != 200:
         raise Exception(f"ElevenLabs error {response.status_code}: {response.text}")
     
     return response.content
+
+ # just username/space-name
+
+def kokoro_tts(text, voice="af_heart", speed=1.0):
+    from gradio_client import Client
+    client = Client("https://slohiya-nora-kokoro.hf.space") 
+    result = client.predict(
+        text=text,
+        voice=voice,
+        speed=speed,
+        api_name="/generate_audio",
+    )
+    with open(result, "rb") as f:
+        return f.read()
 
 def run_tts(text):
     if tts_model == "OpenAI TTS-1":
@@ -288,6 +307,8 @@ def run_tts(text):
         return tts_google(text, tts_voice, tts_rate, tts_pitch)
     elif tts_model == "ElevenLabs":
         return tts_elevenlabs(text, tts_voice, tts_stability, tts_similarity)
+    elif tts_model == "Kokoro":
+        return kokoro_tts(text, tts_voice, tts_rate)
 
 # ── STT ───────────────────────────────────────────────────────────
 def run_stt_whisper(audio_bytes):
@@ -403,15 +424,17 @@ with left_col:
             if text:
                 st.session_state.transcript = text
                 st.session_state.stt_time   = 0.0  # on-device = no server latency
+                st.session_state.input_counter += 1
 
             if st.session_state.transcript:
                 st.markdown("**📝 Transcribed — edit if needed:**")
+                st.session_state[f"ondevice_edit_{st.session_state.input_counter}"] = st.session_state.transcript
                 user_text_input = st.text_area(
                     label="t", label_visibility="collapsed",
                     value=st.session_state.transcript,
                     height=80, 
-                    key="ondevice_edit",
-                    # key=f"whisper_edit_{st.session_state.input_counter}"
+                    # key="ondevice_edit",
+                    key=f"ondevice_edit_{st.session_state.input_counter}"
                 )
 
         except ImportError:
