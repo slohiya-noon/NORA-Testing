@@ -268,9 +268,9 @@ def tts_elevenlabs(text, voice_name, stability, similarity):
     voice_id = voice_ids.get(voice_name, voice_ids["Rachel"])
     
     # ← Add these debug prints
-    # print(f"DEBUG key: '{elevenlabs_key[:5]}...{elevenlabs_key[-4:]}'")
-    # print(f"DEBUG voice: {voice_name} → {voice_id}")
-    # print(f"DEBUG text length: {len(text)}")
+    print(f"DEBUG key: '{elevenlabs_key[:5]}...{elevenlabs_key[-4:]}'")
+    print(f"DEBUG voice: {voice_name} → {voice_id}")
+    print(f"DEBUG text length: {len(text)}")
     
     response = requests.post(
         f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}",
@@ -289,15 +289,13 @@ def tts_elevenlabs(text, voice_name, stability, similarity):
     )
     st.write(f"DEBUG status: {response.status_code}")
     st.write(f"DEBUG response: {response.text[:300]}")
-    # print(f"DEBUG status: {response.status_code}")
-    # print(f"DEBUG response: {response.text[:200]}")
+    print(f"DEBUG status: {response.status_code}")
+    print(f"DEBUG response: {response.text[:200]}")
     
     if response.status_code != 200:
         raise Exception(f"ElevenLabs error {response.status_code}: {response.text}")
     
     return response.content
-
- # just username/space-name
 
 def kokoro_tts(text, voice="af_heart", speed=1.0):
     from gradio_client import Client
@@ -311,15 +309,25 @@ def kokoro_tts(text, voice="af_heart", speed=1.0):
     with open(result, "rb") as f:
         return f.read()
 
-def tts_coqui(text, language="ar"):
+def tts_coqui(text, language):
     import requests
-    coqui_api_url = "https://nontextual-unrepressibly-jacinto.ngrok-free.dev"
-    # url = "https://nontextual-unrepressibly-jacinto.ngrok-free.dev"
+
+    API_URL = "https://nontextual-unrepressively-jacinto.ngrok-free.dev"
+
+    # response = requests.post(
+    #     f"{API_URL}/synthesize",
+    #     json={"text": "test", "language": "en"},
+    #     headers={"Content-Type": "application/json"}
+    # )
+    # print(response.status_code)
+    # print(response.text[:200])
+    # import requests
     response = requests.post(
-        f"{coqui_api_url}/synthesize",
+        f"{API_URL}/synthesize",
         json={"text": text, "language": language},
         headers={"Content-Type": "application/json"}
     )
+    # print(response.status_code)
     if response.status_code != 200:
         raise Exception(f"Coqui error {response.status_code}: {response.text}")
     return response.content
