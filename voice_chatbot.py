@@ -106,6 +106,7 @@ with st.sidebar:
         "Google Neural2",
         "ElevenLabs",
         "Kokoro",
+        "Coqui",
     ])
 
     tts_style = tts_rate = tts_pitch = tts_styledegree = tts_stability = tts_similarity = None
@@ -126,7 +127,9 @@ with st.sidebar:
             tts_voice = st.selectbox("Voice", [
                 "en-US-JennyNeural", "en-US-AriaNeural",
                 "en-US-SaraNeural",  "en-GB-SoniaNeural",
-                "en-AU-NatashaNeural",
+                "en-AU-NatashaNeural","ar-SA-ZariyahNeural", "ar-EG-SalmaNeural",
+                "ar-AE-FatimaNeural",  "ar-JO-SanaNeural",
+                "ar-LB-LaylaNeural"
             ])
         tts_style       = st.selectbox("Style", ["customerservice", "cheerful", "friendly", "newscast"])
         tts_rate        = st.slider("Speaking Rate", 0.5,  1.5,  0.9,  0.05)
@@ -158,6 +161,10 @@ with st.sidebar:
     elif tts_model == "Kokoro":
         tts_voice = st.selectbox("Voice", ["af_heart", "af_bella", "af_sarah", "bf_emma"])
         tts_rate  = st.slider("Speaking Rate", 0.5, 1.5, 1.0, 0.05)
+    elif tts_model == "Coqui":
+        tts_voice  = "coqui"
+        # coqui_lang = st.selectbox("Language", ["ar", "en"])
+        # coqui_url  = st.text_input("Coqui API URL", value="https://nontextual-unrepressibly-jacinto.ngrok-free.dev")
 
     st.divider()
 
@@ -304,6 +311,19 @@ def kokoro_tts(text, voice="af_heart", speed=1.0):
     with open(result, "rb") as f:
         return f.read()
 
+def tts_coqui(text, language="ar"):
+    import requests
+    coqui_api_url = "https://nontextual-unrepressibly-jacinto.ngrok-free.dev"
+    # url = "https://nontextual-unrepressibly-jacinto.ngrok-free.dev"
+    response = requests.post(
+        f"{coqui_api_url}/synthesize",
+        json={"text": text, "language": language},
+        headers={"Content-Type": "application/json"}
+    )
+    if response.status_code != 200:
+        raise Exception(f"Coqui error {response.status_code}: {response.text}")
+    return response.content
+
 def run_tts(text):
     if tts_model == "OpenAI TTS-1":
         return tts_openai(text, "tts-1", tts_voice)
@@ -317,6 +337,10 @@ def run_tts(text):
         return tts_elevenlabs(text, tts_voice, tts_stability, tts_similarity)
     elif tts_model == "Kokoro":
         return kokoro_tts(text, tts_voice, tts_rate)
+    elif tts_model == "Coqui":
+        lang = "ar" if language == "Arabic" else "en"  # ← use existing language
+        return tts_coqui(text, lang)
+
 
 # ── STT ───────────────────────────────────────────────────────────
 def run_stt_whisper(audio_bytes):
