@@ -67,6 +67,9 @@ if "last_processed_transcript" not in st.session_state:
     st.session_state.last_processed_transcript = ""
 if "transcript_id" not in st.session_state: st.session_state.transcript_id = 0
 if "last_processed_id" not in st.session_state: st.session_state.last_processed_id = 0
+silma_url       = ""
+silma_ref_audio = None
+silma_ref_text  = ""
 # ── Sidebar ───────────────────────────────────────────────────────
 with st.sidebar:
     st.title("⚙️ Configuration")
@@ -97,7 +100,11 @@ with st.sidebar:
         st.caption("🔵 Best accuracy · $0.006/min · Supports Arabic + English")
 
     st.divider()
-
+    
+    st.subheader("🔧 Post Processing")
+    spoken_rewrite = st.toggle("✍️ Rewrite to Spoken Style", value=False)
+    st.caption("Rewrites response into short conversational sentences before TTS")
+    st.divider()
     st.subheader("🔊 Text-to-Speech")
     tts_model = st.selectbox("TTS Model", [
         "OpenAI TTS-1",
@@ -107,6 +114,7 @@ with st.sidebar:
         "ElevenLabs",
         "Kokoro",
         "Coqui",
+        "Silma TTS",
     ])
 
     tts_style = tts_rate = tts_pitch = tts_styledegree = tts_stability = tts_similarity = None
@@ -165,7 +173,16 @@ with st.sidebar:
         tts_voice  = "coqui"
         # coqui_lang = st.selectbox("Language", ["ar", "en"])
         # coqui_url  = st.text_input("Coqui API URL", value="https://nontextual-unrepressibly-jacinto.ngrok-free.dev")
-
+    elif tts_model == "Silma TTS":
+        tts_voice       = "silma"
+        silma_url       = st.text_input("Silma API URL", 
+                            value="https://knowledge-tricks-reliability-jewish.trycloudflare.com")
+        silma_ref_audio = st.file_uploader("📎 Reference Audio", type=["wav", "mp3"])
+        silma_ref_text  = st.text_area("📝 Reference Transcript", height=80,
+                            placeholder="Exact text spoken in reference audio...")
+        if not silma_ref_audio:
+            st.warning("⚠️ Upload reference audio to clone a voice")
+        
     st.divider()
 
     st.subheader("🤖 Agent")
@@ -191,6 +208,56 @@ with st.sidebar:
         if "whisper_edit"  in st.session_state: del st.session_state["whisper_edit"]
         if "ondevice_edit" in st.session_state: del st.session_state["ondevice_edit"]
         st.rerun()
+    
+# -- Post PRocessing Functions ───────────────────────────────────────────────
+import re
+
+def rewrite_to_spoken(text):
+    from openai import OpenAI
+    client = OpenAI(api_key=openai_key)
+    system_prompt = """You are a voice script writer. Convert text into natural spoken audio script.
+        RULES:
+        - Break into short sentences (max 15 words each)
+        - Add "..." for natural pauses where needed  
+        - Spell out numbers: "3" → "three", "$50" → "fifty dollars"
+        - Expand abbreviations: "Dr." → "Doctor", "vs" → "versus"
+        - Remove bullet points, headers, markdown formatting
+        - Replace emojis with words or remove them
+        - Keep filler words like "well", "so", "now" where natural
+        - For mixed Arabic/English: keep each language segment together, don't mix mid-sentence
+        - Maintain the original meaning exactly
+        - Output ONLY the rewritten script, no explanations
+
+        EXAMPLE:
+        Input: "The S26 Ultra features a 200MP camera & 5000mAh battery. Price: $1,299."
+        Output: "The S twenty six Ultra features a two hundred megapixel camera... and a five thousand milliamp hour battery. The price is one thousand two hundred and ninety nine dollars."
+    """
+    resp = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {
+                "role": "system",
+                "content": system_prompt
+            },
+            {"role": "user", "content": text}
+        ]
+    )
+    return resp.choices[0].message.content
+
+def chunk_speech(text):
+    raw    = re.split(r"\.\.\.|\.|\?|!", text)
+    chunks = []
+    for c in raw:
+        c = c.strip()
+        if not c:
+            continue
+        words = c.split()
+        while len(words) > 12:
+            chunks.append(" ".join(words[:12]))
+            words = words[12:]
+        if words:
+            chunks.append(" ".join(words))
+    return chunks
 
 # ── TTS Functions ─────────────────────────────────────────────────
 def tts_openai(text, model, voice):
@@ -251,7 +318,6 @@ def tts_google(text, voice_name, rate, pitch):
             pitch=pitch
         )
     )
-    # print(response.status_code)
     return response.audio_content
 
 def tts_elevenlabs(text, voice_name, stability, similarity):
@@ -333,6 +399,28 @@ def tts_coqui(text, language):
         raise Exception(f"Coqui error {response.status_code}: {response.text}")
     return response.content
 
+def tts_silma(text, ref_audio_bytes, ref_text, ref_filename, url):
+    print("step2")
+    import requests
+    suffix   = ".mp3" if ref_filename.endswith(".mp3") else ".wav"
+    mimetype = "audio/mp3" if suffix == ".mp3" else "audio/wav"
+    response = requests.post(
+        f"{url}/synthesize",
+        data={
+            "text":     text,
+            "ref_text": ref_text,
+        },
+        files={
+            "ref_audio": (f"ref{suffix}", ref_audio_bytes, mimetype)
+        },
+        timeout=120  # Silma can be slow on first run
+    )
+    print(response)
+    if response.status_code != 200:
+        raise Exception(f"Silma error {response.status_code}: {response.text}")
+    return response.content
+
+
 def run_tts(text):
     if tts_model == "OpenAI TTS-1":
         return tts_openai(text, "tts-1", tts_voice)
@@ -349,6 +437,14 @@ def run_tts(text):
     elif tts_model == "Coqui":
         lang = "ar" if language == "Arabic" else "en"  # ← use existing language
         return tts_coqui(text, lang)
+    elif tts_model == "Silma TTS":
+        print("step1")
+        if not silma_ref_audio:
+            raise Exception("Upload reference audio in sidebar")
+        if not silma_ref_text:
+            raise Exception("Add reference transcript in sidebar")
+        return tts_silma(text, silma_ref_audio.read(), silma_ref_text, 
+                        silma_ref_audio.name, silma_url)
 
 
 # ── STT ───────────────────────────────────────────────────────────
@@ -556,6 +652,7 @@ with left_col:
         or
         (not auto_send and send_btn and isinstance(user_text_input, str) and user_text_input.strip())
     )
+    print("step0")
     if should_run:
         if not openai_key:
             st.error("Please enter your OpenAI API Key in the sidebar")
@@ -572,13 +669,25 @@ with left_col:
                 agent_response = run_agent(user_text)
                 agent_time     = time.time() - agent_start
                 # print(f"DEBUG agent response: '{agent_response[:30]}'")
+            # Post processing — spoken rewrite
+            tts_input = agent_response
+            if spoken_rewrite:
+                with st.spinner("✍️ Rewriting to spoken style..."):
+                    rewrite_start = time.time()
+                    tts_input     = rewrite_to_spoken(agent_response)
+                    rewrite_time  = time.time() - rewrite_start
+                    st.caption(f"✍️ Rewritten in {rewrite_time:.2f}s")
+                    # Show both original and rewritten
+                    with st.expander("See rewritten text"):
+                        st.write(f"**Original:** {agent_response}")
+                        st.write(f"**Rewritten:** {tts_input}")
 
             # TTS
             # print(f"DEBUG calling TTS...")
             with st.spinner(f"🔊 Generating speech ({tts_model})..."):
                 tts_start = time.time()
                 try:
-                    tts_audio = run_tts(agent_response)
+                    tts_audio = run_tts(tts_input)
                     tts_time  = time.time() - tts_start
                     tts_ok    = True
                     # print(f"DEBUG TTS success, audio size: {len(tts_audio)}")
