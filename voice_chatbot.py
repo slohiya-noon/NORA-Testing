@@ -70,6 +70,7 @@ if "last_processed_id" not in st.session_state: st.session_state.last_processed_
 silma_url       = ""
 silma_ref_audio = None
 silma_ref_text  = ""
+if "rewrite_time" not in st.session_state: st.session_state.rewrite_time = 0.0
 # ── Sidebar ───────────────────────────────────────────────────────
 with st.sidebar:
     st.title("⚙️ Configuration")
@@ -215,23 +216,41 @@ import re
 def rewrite_to_spoken(text):
     from openai import OpenAI
     client = OpenAI(api_key=openai_key)
-    system_prompt = """You are a voice script writer. Convert text into natural spoken audio script.
-        RULES:
-        - Break into short sentences (max 15 words each)
-        - Add "..." for natural pauses where needed  
-        - Spell out numbers: "3" → "three", "$50" → "fifty dollars"
-        - Expand abbreviations: "Dr." → "Doctor", "vs" → "versus"
-        - Remove bullet points, headers, markdown formatting
-        - Replace emojis with words or remove them
-        - Keep filler words like "well", "so", "now" where natural
-        - For mixed Arabic/English: keep each language segment together, don't mix mid-sentence
-        - Maintain the original meaning exactly
-        - Output ONLY the rewritten script, no explanations
+    system_prompt = """You are converting AI chatbot text into a natural human voice script.
 
-        EXAMPLE:
-        Input: "The S26 Ultra features a 200MP camera & 5000mAh battery. Price: $1,299."
-        Output: "The S twenty six Ultra features a two hundred megapixel camera... and a five thousand milliamp hour battery. The price is one thousand two hundred and ninety nine dollars."
-    """
+            The output will be read aloud by a TTS voice. Make it sound like a real human speaking.
+
+            TRANSFORM AGGRESSIVELY:
+            - Split ANY sentence longer than 10 words into two sentences
+            - Add "..." between related thoughts for breathing pauses
+            - Start responses with natural openers: "Sure!", "Great question.", "So...", "Well..."
+            - Replace formal words: "however" → "but", "therefore" → "so", "purchase" → "buy"
+            - Spell everything out: "200MP" → "two hundred megapixel", "S26" → "S twenty six"
+            - Remove ALL markdown: bullets, bold, headers, asterisks
+            - End with a friendly closing: "Is there anything else I can help with?"
+
+            EXAMPLE:
+            Input: "The Samsung Galaxy S26 Ultra features a 200MP camera, titanium frame, and S Pen support. It is priced at $1,299."
+            Output: "Sure! So the Samsung Galaxy S twenty six Ultra... is packed with amazing features. It has a two hundred megapixel camera. The frame is made of titanium. And it comes with S Pen support. The price is one thousand two hundred and ninety nine dollars. Is there anything else I can help with?"
+
+            Output ONLY the rewritten script. Nothing else."""
+    # system_prompt = """You are a voice script writer. Convert text into natural spoken audio script.
+    #     RULES:
+    #     - Break into short sentences (max 15 words each)
+    #     - Add "..." for natural pauses where needed  
+    #     - Spell out numbers: "3" → "three", "$50" → "fifty dollars"
+    #     - Expand abbreviations: "Dr." → "Doctor", "vs" → "versus"
+    #     - Remove bullet points, headers, markdown formatting
+    #     - Replace emojis with words or remove them
+    #     - Keep filler words like "well", "so", "now" where natural
+    #     - For mixed Arabic/English: keep each language segment together, don't mix mid-sentence
+    #     - Maintain the original meaning exactly
+    #     - Output ONLY the rewritten script, no explanations
+
+    #     EXAMPLE:
+    #     Input: "The S26 Ultra features a 200MP camera & 5000mAh battery. Price: $1,299."
+    #     Output: "The S twenty six Ultra features a two hundred megapixel camera... and a five thousand milliamp hour battery. The price is one thousand two hundred and ninety nine dollars."
+    # """
     resp = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[
@@ -539,6 +558,7 @@ with left_col:
     st.subheader("🎙️ Input")
     user_text_input = ""
     stt_time        = 0.0
+    rewrite_time = 0.0
 
     # ── On-Device STT via streamlit-mic-recorder ──────────────────
     if stt_model == "On-Device (Browser)":
@@ -681,6 +701,7 @@ with left_col:
                     with st.expander("See rewritten text"):
                         st.write(f"**Original:** {agent_response}")
                         st.write(f"**Rewritten:** {tts_input}")
+            print(f"DEBUG final TTS input: '{tts_input}'")
 
             # TTS
             # print(f"DEBUG calling TTS...")
@@ -708,6 +729,7 @@ with left_col:
             st.session_state.latency_history.append({
                 "stt":   round(stt_time, 3),
                 "agent": round(agent_time, 3),
+                "rewrite": round(rewrite_time, 3),  # ← add
                 "tts":   round(tts_time, 3) if tts_ok else 0.0,
                 "total": round(total_time, 3),
             })
@@ -734,14 +756,34 @@ with right_col:
     if st.session_state.latency_history:
         last  = st.session_state.latency_history[-1]
         total = last["total"]
+        has_rewrite = last.get("rewrite", 0) > 0
+        has_stt     = stt_model == "OpenAI Whisper (API)"
 
-        # Metrics
-        if stt_model == "OpenAI Whisper (API)":
+        # ── Metrics ───────────────────────────────────────────────
+        if has_stt and has_rewrite:
+            c1, c2, c3, c4, c5 = st.columns(5)
+            c1.metric("STT",     f"{last['stt']:.2f}s")
+            c2.metric("Agent",   f"{last['agent']:.2f}s")
+            c3.metric("Rewrite", f"{last['rewrite']:.2f}s")
+            c4.metric("TTS",     f"{last['tts']:.2f}s")
+            c5.metric("Total",   f"{last['total']:.2f}s")
+        elif has_stt and not has_rewrite:
             c1, c2, c3, c4 = st.columns(4)
             c1.metric("STT",   f"{last['stt']:.2f}s")
             c2.metric("Agent", f"{last['agent']:.2f}s")
             c3.metric("TTS",   f"{last['tts']:.2f}s")
             c4.metric("Total", f"{last['total']:.2f}s")
+        elif not has_stt and has_rewrite:
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Agent",   f"{last['agent']:.2f}s")
+            c2.metric("Rewrite", f"{last['rewrite']:.2f}s")
+            c3.metric("TTS",     f"{last['tts']:.2f}s")
+            c4.metric("Total",   f"{last['total']:.2f}s")
+            st.markdown(
+                "<p style='font-size:12px;color:#6c7086;margin:2px 0 10px;'>"
+                "🟢 STT: On-device — 0ms server latency</p>",
+                unsafe_allow_html=True
+            )
         else:
             c1, c2, c3 = st.columns(3)
             c1.metric("Agent", f"{last['agent']:.2f}s")
@@ -753,15 +795,17 @@ with right_col:
                 unsafe_allow_html=True
             )
 
-        # Breakdown bars
+        # ── Breakdown bars ────────────────────────────────────────
         bars = ""
-        if stt_model == "OpenAI Whisper (API)" and last["stt"] > 0:
-            bars += latency_bar("STT",   last["stt"],   total, "#f38ba8")
-        bars += latency_bar("Agent", last["agent"], total, "#a6e3a1")
-        bars += latency_bar("TTS",   last["tts"],   total, "#89b4fa")
+        if has_stt and last["stt"] > 0:
+            bars += latency_bar("STT",     last["stt"],              total, "#f38ba8")
+        bars     += latency_bar("Agent",   last["agent"],            total, "#a6e3a1")
+        if has_rewrite:
+            bars += latency_bar("Rewrite", last.get("rewrite", 0),   total, "#cba6f7")
+        bars     += latency_bar("TTS",     last["tts"],              total, "#89b4fa")
         st.markdown(bars, unsafe_allow_html=True)
 
-        # RTF
+        # ── RTF ───────────────────────────────────────────────────
         if last["tts"] > 0 and st.session_state.conversation:
             reply        = st.session_state.conversation[-1]["assistant"]
             est_duration = (len(reply) / 5) / 2.5
@@ -771,31 +815,47 @@ with right_col:
 
         st.divider()
 
-        # History chart
+        # ── History chart ─────────────────────────────────────────
         if len(st.session_state.latency_history) > 1:
             st.subheader("📈 History")
             hdf = pd.DataFrame(st.session_state.latency_history)
             hdf.index = [f"T{i+1}" for i in range(len(hdf))]
-            cols = ["stt", "agent", "tts"] if stt_model == "OpenAI Whisper (API)" else ["agent", "tts"]
+            # Build cols dynamically
+            cols = []
+            if has_stt:              cols.append("stt")
+            cols.append("agent")
+            if "rewrite" in hdf.columns and hdf["rewrite"].sum() > 0:
+                cols.append("rewrite")
+            cols.append("tts")
             st.bar_chart(hdf[cols])
 
-        # Averages
+        # ── Averages ──────────────────────────────────────────────
         st.subheader("📋 Averages")
         hdf = pd.DataFrame(st.session_state.latency_history)
-        if stt_model == "OpenAI Whisper (API)":
-            avg_data = {
-                "Component": ["STT", "Agent", "TTS", "Total"],
-                "Avg (s)": [f"{hdf['stt'].mean():.3f}",  f"{hdf['agent'].mean():.3f}", f"{hdf['tts'].mean():.3f}", f"{hdf['total'].mean():.3f}"],
-                "Min (s)": [f"{hdf['stt'].min():.3f}",   f"{hdf['agent'].min():.3f}",  f"{hdf['tts'].min():.3f}",  f"{hdf['total'].min():.3f}"],
-                "Max (s)": [f"{hdf['stt'].max():.3f}",   f"{hdf['agent'].max():.3f}",  f"{hdf['tts'].max():.3f}",  f"{hdf['total'].max():.3f}"],
-            }
+
+        components = []
+        if has_stt:
+            components.append(("STT",     "stt"))
         else:
-            avg_data = {
-                "Component": ["On-Device STT", "Agent", "TTS", "Total"],
-                "Avg (s)": ["0.000 (free)", f"{hdf['agent'].mean():.3f}", f"{hdf['tts'].mean():.3f}", f"{hdf['total'].mean():.3f}"],
-                "Min (s)": ["—",            f"{hdf['agent'].min():.3f}",  f"{hdf['tts'].min():.3f}",  f"{hdf['total'].min():.3f}"],
-                "Max (s)": ["—",            f"{hdf['agent'].max():.3f}",  f"{hdf['tts'].max():.3f}",  f"{hdf['total'].max():.3f}"],
-            }
+            components.append(("On-Device STT", None))
+        components.append(("Agent", "agent"))
+        if "rewrite" in hdf.columns and hdf["rewrite"].sum() > 0:
+            components.append(("Rewrite", "rewrite"))
+        components.append(("TTS",   "tts"))
+        components.append(("Total", "total"))
+
+        avg_data = {"Component": [], "Avg (s)": [], "Min (s)": [], "Max (s)": []}
+        for label, col in components:
+            avg_data["Component"].append(label)
+            if col is None:
+                avg_data["Avg (s)"].append("0.000 (free)")
+                avg_data["Min (s)"].append("—")
+                avg_data["Max (s)"].append("—")
+            else:
+                avg_data["Avg (s)"].append(f"{hdf[col].mean():.3f}")
+                avg_data["Min (s)"].append(f"{hdf[col].min():.3f}")
+                avg_data["Max (s)"].append(f"{hdf[col].max():.3f}")
+
         st.dataframe(avg_data, hide_index=True, use_container_width=True)
 
         st.divider()
@@ -805,7 +865,8 @@ with right_col:
             🎙️ STT &nbsp;: {stt_model}<br>
             🔊 TTS &nbsp;: {tts_model} — {tts_voice}<br>
             🤖 LLM &nbsp;: {agent_model}<br>
-            🌐 Lang: {language}
+            🌐 Lang: {language}<br>
+            ✍️ Rewrite: {"On" if spoken_rewrite else "Off"}
         </div>
         """, unsafe_allow_html=True)
 
