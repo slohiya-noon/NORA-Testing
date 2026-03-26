@@ -216,52 +216,108 @@ import re
 def rewrite_to_spoken(text):
     from openai import OpenAI
     client = OpenAI(api_key=openai_key)
-    system_prompt = """You are converting AI chatbot text into a natural human voice script.
 
-            The output will be read aloud by a TTS voice. Make it sound like a real human speaking.
+    lang_instruction = ""
+    if language == "Arabic":
+        lang_instruction = """
+LANGUAGE RULES (Arabic):
+- Output must be in Arabic only
+- Natural Arabic openers: "بالتأكيد!", "سؤال رائع.", "حسناً...", "إذن..."
+- Spell numbers in Arabic words: "200" → "مئتان", "$50" → "خمسون دولاراً"
+- End with Arabic closing: "هل هناك أي شيء آخر يمكنني مساعدتك به؟"
+- Replace formal Arabic with conversational: "ومع ذلك" → "لكن", "لذلك" → "إذن"
+- Keep English brand names/model numbers as-is: "Samsung", "S26 Ultra"
 
-            TRANSFORM AGGRESSIVELY:
-            - Split ANY sentence longer than 10 words into two sentences
-            - Add "..." between related thoughts for breathing pauses
-            - Start responses with natural openers: "Sure!", "Great question.", "So...", "Well..."
-            - Replace formal words: "however" → "but", "therefore" → "so", "purchase" → "buy"
-            - Spell everything out: "200MP" → "two hundred megapixel", "S26" → "S twenty six"
-            - Remove ALL markdown: bullets, bold, headers, asterisks
-            - End with a friendly closing: "Is there anything else I can help with?"
+ARABIC EXAMPLE:
+Input: "يتميز هاتف سامسونج S26 Ultra بكاميرا 200 ميغابكسل وإطار تيتانيوم."
+Output: "بالتأكيد! إذن... هاتف سامسونج S26 Ultra مميز جداً. يحتوي على كاميرا بمئتي ميغابكسل... والإطار مصنوع من التيتانيوم. هل هناك أي شيء آخر يمكنني مساعدتك به؟"
+"""
+    else:
+        lang_instruction = """
+LANGUAGE RULES (English):
+- Output must be in English only
+- Natural openers: "Sure!", "Great question.", "So...", "Well..."
+- Spell everything out: "200MP" → "two hundred megapixel", "S26" → "S twenty six"
+- End with: "Is there anything else I can help with?"
 
-            EXAMPLE:
-            Input: "The Samsung Galaxy S26 Ultra features a 200MP camera, titanium frame, and S Pen support. It is priced at $1,299."
-            Output: "Sure! So the Samsung Galaxy S twenty six Ultra... is packed with amazing features. It has a two hundred megapixel camera. The frame is made of titanium. And it comes with S Pen support. The price is one thousand two hundred and ninety nine dollars. Is there anything else I can help with?"
+ENGLISH EXAMPLE:
+Input: "The Samsung Galaxy S26 Ultra features a 200MP camera, titanium frame."
+Output: "Sure! So the Samsung Galaxy S twenty six Ultra... is packed with amazing features. It has a two hundred megapixel camera... and the frame is made of titanium. Is there anything else I can help with?"
+"""
 
-            Output ONLY the rewritten script. Nothing else."""
-    # system_prompt = """You are a voice script writer. Convert text into natural spoken audio script.
-    #     RULES:
-    #     - Break into short sentences (max 15 words each)
-    #     - Add "..." for natural pauses where needed  
-    #     - Spell out numbers: "3" → "three", "$50" → "fifty dollars"
-    #     - Expand abbreviations: "Dr." → "Doctor", "vs" → "versus"
-    #     - Remove bullet points, headers, markdown formatting
-    #     - Replace emojis with words or remove them
-    #     - Keep filler words like "well", "so", "now" where natural
-    #     - For mixed Arabic/English: keep each language segment together, don't mix mid-sentence
-    #     - Maintain the original meaning exactly
-    #     - Output ONLY the rewritten script, no explanations
+    system_prompt = f"""You are converting AI chatbot text into a natural human voice script.
+The output will be read aloud by a TTS voice. Make it sound like a real human speaking.
 
-    #     EXAMPLE:
-    #     Input: "The S26 Ultra features a 200MP camera & 5000mAh battery. Price: $1,299."
-    #     Output: "The S twenty six Ultra features a two hundred megapixel camera... and a five thousand milliamp hour battery. The price is one thousand two hundred and ninety nine dollars."
-    # """
+TRANSFORM AGGRESSIVELY:
+- Split ANY sentence longer than 10 words into two sentences
+- Add "..." between related thoughts for breathing pauses
+- Replace formal words with conversational ones
+- Remove ALL markdown: bullets, bold, headers, asterisks
+- Remove emojis completely
+
+{lang_instruction}
+
+Output ONLY the rewritten script. Nothing else."""
+
     resp = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[
-            {
-                "role": "system",
-                "content": system_prompt
-            },
-            {"role": "user", "content": text}
-        ]
+            {"role": "system", "content": system_prompt},
+            {"role": "user",   "content": text}
+        ],
+        temperature=0.7
     )
     return resp.choices[0].message.content
+
+# def rewrite_to_spoken(text):
+#     from openai import OpenAI
+#     client = OpenAI(api_key=openai_key)
+#     system_prompt = """You are converting AI chatbot text into a natural human voice script.
+
+#             The output will be read aloud by a TTS voice. Make it sound like a real human speaking.
+
+#             TRANSFORM AGGRESSIVELY:
+#             - Split ANY sentence longer than 10 words into two sentences
+#             - Add "..." between related thoughts for breathing pauses
+#             - Start responses with natural openers: "Sure!", "Great question.", "So...", "Well..."
+#             - Replace formal words: "however" → "but", "therefore" → "so", "purchase" → "buy"
+#             - Spell everything out: "200MP" → "two hundred megapixel", "S26" → "S twenty six"
+#             - Remove ALL markdown: bullets, bold, headers, asterisks
+#             - End with a friendly closing: "Is there anything else I can help with?"
+
+#             EXAMPLE:
+#             Input: "The Samsung Galaxy S26 Ultra features a 200MP camera, titanium frame, and S Pen support. It is priced at $1,299."
+#             Output: "Sure! So the Samsung Galaxy S twenty six Ultra... is packed with amazing features. It has a two hundred megapixel camera. The frame is made of titanium. And it comes with S Pen support. The price is one thousand two hundred and ninety nine dollars. Is there anything else I can help with?"
+
+#             Output ONLY the rewritten script. Nothing else."""
+#     # system_prompt = """You are a voice script writer. Convert text into natural spoken audio script.
+#     #     RULES:
+#     #     - Break into short sentences (max 15 words each)
+#     #     - Add "..." for natural pauses where needed  
+#     #     - Spell out numbers: "3" → "three", "$50" → "fifty dollars"
+#     #     - Expand abbreviations: "Dr." → "Doctor", "vs" → "versus"
+#     #     - Remove bullet points, headers, markdown formatting
+#     #     - Replace emojis with words or remove them
+#     #     - Keep filler words like "well", "so", "now" where natural
+#     #     - For mixed Arabic/English: keep each language segment together, don't mix mid-sentence
+#     #     - Maintain the original meaning exactly
+#     #     - Output ONLY the rewritten script, no explanations
+
+#     #     EXAMPLE:
+#     #     Input: "The S26 Ultra features a 200MP camera & 5000mAh battery. Price: $1,299."
+#     #     Output: "The S twenty six Ultra features a two hundred megapixel camera... and a five thousand milliamp hour battery. The price is one thousand two hundred and ninety nine dollars."
+#     # """
+#     resp = client.chat.completions.create(
+#         model="gpt-4o-mini",
+#         messages=[
+#             {
+#                 "role": "system",
+#                 "content": system_prompt
+#             },
+#             {"role": "user", "content": text}
+#         ]
+#     )
+#     return resp.choices[0].message.content
 
 def chunk_speech(text):
     raw    = re.split(r"\.\.\.|\.|\?|!", text)
